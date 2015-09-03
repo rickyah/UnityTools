@@ -2,7 +2,7 @@ using UnityEngine;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using UniytTools.Base;
+using UnityTools.Base;
 
 namespace UnityTools.SceneManager
 {
@@ -148,7 +148,7 @@ namespace UnityTools.SceneManager
 
         internal void NotifySceneLoadedAndActive()
         {
-            if (!IsSceneLoaded) return;
+            if (IsSceneLoaded) return;
 
             IsSceneLoaded = true;
             IsSceneActivated = true;
@@ -525,7 +525,15 @@ namespace UnityTools.SceneManager
 
         bool IsSceneLoaded(AsyncOperation asyncOp)
         {
-            return asyncOp.allowSceneActivation || asyncOp.progress >= this.PercentTriggerSceneLoaded;;
+            if(!asyncOp.allowSceneActivation)
+            {
+                return asyncOp.progress >= this.PercentTriggerSceneLoaded;;
+            }
+            else
+            {
+                return asyncOp.isDone;
+            }
+
         }
         /// <summary>
         ///     Waits a frame after the scene is loaded so the GameObjects 
