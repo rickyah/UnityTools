@@ -17,12 +17,12 @@ namespace UnityTools.SceneManager
     public class SceneLoadingArgs : EventArgs
     {
         // Register the load start time and when the scene finished loading.
-        private long _startTime, _endTime;
+        private long _loadStartTime, _loadLoadEndTime;
         private static int NextId = 1;
         private int _id;
         private Action<SceneLoadingArgs> _loadSceneStepCallback;
         private UnityEngine.AsyncOperation _asyncOp;
-       
+
 
         public SceneLoadingArgs(string sceneName,
                                 bool loadAdditive,
@@ -33,12 +33,12 @@ namespace UnityTools.SceneManager
             if (string.IsNullOrEmpty(sceneName)) throw new ArgumentNullException ("sceneName");
 
             _id = NextId++;
-            _startTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            _loadStartTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
             _loadSceneStepCallback = loadSceneStepCallback;
 
             SceneName = sceneName;
-            IsSceneLoadedAdditive = loadAdditive;
-            IsSceneLoadedAsync = loadAsync; 
+            IsSceneLoadingAdditive = loadAdditive;
+            IsSceneLoadingAsync = loadAsync;
         }
 
         internal void SaveAsyncOperationReference(UnityEngine.AsyncOperation asyncOp)
@@ -55,12 +55,12 @@ namespace UnityTools.SceneManager
         ///     True if the scene was loaded additive: contents of the newly scene are added to the scene
         ///     currently playing.
         /// </summary>
-        public bool IsSceneLoadedAdditive {get; private set; }
+        public bool IsSceneLoadingAdditive {get; private set; }
 
         /// <summary>
         ///     True if the scene was loaded asyncronously
         /// </summary>
-        public bool IsSceneLoadedAsync {get; private set; }
+        public bool IsSceneLoadingAsync {get; private set; }
 
         /// <summary>
         ///     Loading progress percent. Range is [0,1]
@@ -68,10 +68,16 @@ namespace UnityTools.SceneManager
         public float LoadingProgress { get; private set;}
 
         /// <summary>
-        ///   True if the scene was loaded. Note that for async loaded scenes, the scene may be loaded in memory
-        ///   but not activated (scene contents not loaded into the scene tree)
+        ///   True if the scene was loaded in memory. 
+        ///   Note: for async loaded scenes, the scene may be loaded in memory but not activated
+        ///   meaning, the scene contents are not available yet in the scene tree.
         /// </summary>
-        public bool IsSceneLoaded  {get; private set; }
+        public bool IsSceneInMemory  {get; private set; }
+
+        /// <summary>
+        ///   True if the scene was loaded and ready to use.
+        /// </summary>
+        public bool IsSceneLoaded { get { return IsSceneInMemory && IsSceneActivated; } }
 
         /// <summary>
         ///   True if the scene is active in unity. Call ActivateScene() to actually activate a loaded scene
@@ -79,11 +85,10 @@ namespace UnityTools.SceneManager
         public bool IsSceneActivated {get; private set;}
 
         /// <summary>
-        ///     If set to <c>true</c> the GameObjects in the scene will activate automatically (loaded in the scene tree)
-        ///     when the scene is finished loading.
-        ///
-        ///     True by default
+        ///     If <c>true</c> the scene will activate automatically (loaded in the scene tree)
+        ///     after loading.
         /// </summary>
+        /// <default>true</default>
         public bool IsSceneActivatedOnLoad
         {
             get
@@ -93,12 +98,13 @@ namespace UnityTools.SceneManager
         }
 
         /// <summary>
-        ///     Call this methods for scenes loaded asynchronously to activate the scene in unity and
+        ///     Call this method for scenes loaded asynchronously to activate the scene in unity and
         ///     load its contents into the scene tree.
-        /// </summary> 
+        /// </summary>
         /// <remarks>
         ///     You can call this method even if the scene has not finished loading, in which case
-        ///     the scene will be activated after is finished loading.
+        ///     the scene will be activated after is finished loading, effectively behaving as if
+        ///     the IsSceneActivatedOnLoad flag were set to true.
         /// </remarks>
         public void ActivateScene()
         {
@@ -113,61 +119,69 @@ namespace UnityTools.SceneManager
         {
             get
             {
-                if (IsSceneLoaded) return _endTime - _startTime;
-                return (DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - _startTime;
+                if (IsSceneInMemory) return _loadLoadEndTime - _loadStartTime;
+                return (DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - _loadStartTime;
             }
         }
 
         /// <summary>
         ///     Time when the scene finished loading
         /// </summary>
-        public long EndTime
+        public long LoadEndTime
         {
             get
             {
-                return IsSceneLoaded? _endTime : 0;
+                return IsSceneInMemory? _loadLoadEndTime : 0;
             }
         }
 
         internal void NotifySceneLoadingProgress(float progress)
         {
-            if (IsSceneLoaded) throw new Exception("Scene load finished, Progress update not allowed");
+            if (IsSceneInMemory) throw new Exception("Scene load finished, Progress update not allowed");
 
             LoadingProgress = progress;
 
-            if (_loadSceneStepCallback != null) _loadSceneStepCallback(this);
+            OnLoadSceneStep();
         }
 
         internal void NotifySceneLoaded()
         {
-            IsSceneLoaded = true;
+            IsSceneInMemory = true;
             LoadingProgress = 1.0f;
 
-            if (_loadSceneStepCallback != null) _loadSceneStepCallback(this);
+            OnLoadSceneStep();
         }
 
         internal void NotifySceneLoadedAndActive()
         {
-            if (IsSceneLoaded) return;
+            if (IsSceneInMemory) return;
 
-            IsSceneLoaded = true;
+            IsSceneInMemory = true;
             IsSceneActivated = true;
 
             LoadingProgress = 1.0f;
-            _endTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            _loadLoadEndTime = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
 
             _asyncOp = null;
 
-            if (_loadSceneStepCallback != null) _loadSceneStepCallback(this);
+            OnLoadSceneStep();
         }
 
         public override string ToString()
         {
             return string.Format("Scene \"{0}\"{1}{2} Id:{3}",
                 SceneName,
-                IsSceneLoadedAdditive? " Additive" : string.Empty,
-                IsSceneLoadedAsync? " Async" : string.Empty,
+                IsSceneLoadingAdditive? " Additive" : string.Empty,
+                IsSceneLoadingAsync? " Async" : string.Empty,
                 _id);
+        }
+
+        void OnLoadSceneStep()
+        {
+            if (_loadSceneStepCallback != null)
+            {
+                _loadSceneStepCallback(this);
+            }
         }
     }
 
@@ -177,7 +191,7 @@ namespace UnityTools.SceneManager
     ///     so you don't need to spawn Coroutines.
     ///
     ///     The SceneManager keeps track of:
-    ///     - The name of the scene used to initialize the game (allows testing individual 
+    ///     - The name of the scene used to initialize the game (allows testing individual
     ///         scenes along the project depending on which scene you started from)
     ///     - The names of the scenes loaded in the game and the order in which they were loaded.
     ///       You'll need to put the inspector in debug mode to check this information
@@ -188,29 +202,29 @@ namespace UnityTools.SceneManager
     ///         SceneDidLoad:               raised when the SceneManager finished loading the scene
     ///                                     and the elements of the scene are accesible
     ///
-    ///         AsyncSceneLoadingProgress:  raised periodically to notify the load progress when 
+    ///         AsyncSceneLoadingProgress:  raised periodically to notify the load progress when
     ///                                     a scene is being loaded asynchronous
     ///
     ///     When loading an scene in an asynchronous way, the method will return a SceneLoadingArgs
     ///     instance, that raises events notifying only of the that scene loading progress or if the
     ///     scene finished loading. This serves as a simple way to attach a listener if you only are
-    ///     interested on the events related to that scene. It is similar to the AsyncOperation 
-    ///     instance returned by the Application.LoadLevelAsync methods but they are not an 
-    ///     IEnumerator and thus they can't called with a Coroutine. No need to worry: the SceneManager 
+    ///     interested on the events related to that scene. It is similar to the AsyncOperation
+    ///     instance returned by the Application.LoadLevelAsync methods but they are not an
+    ///     IEnumerator and thus they can't called with a Coroutine. No need to worry: the SceneManager
     ///     will take care of this plumbing.
     /// </summary>
     /// <remarks>
-    ///     Monobehaviour Singleton: either if accessed by code or added to a scene this script will 
-    ///     always be located inside a GameObject marked as DontDestroyOnLoad so it lives during 
+    ///     Monobehaviour Singleton: either if accessed by code or added to a scene this script will
+    ///     always be located inside a GameObject marked as DontDestroyOnLoad so it lives during
     ///     all the execution of the app.
-    ///     This MonoBehaviour should be the first thing executed when the app starts so remember 
+    ///     This MonoBehaviour should be the first thing executed when the app starts so remember
     ///     to update the ScriptExecutionOrder in the ProjectSettings
     /// </remarks>
     public class SceneManager : MonoBehaviourSingleton<SceneManager>
     {
         [Range(0.8f, 1f)]
         public float PercentTriggerSceneLoaded = 0.9f;
-        
+
 
         #region State
         // We use fields so its values shows up in the inspector on debug mode
@@ -255,6 +269,15 @@ namespace UnityTools.SceneManager
         /// </summary>
         public bool IsLoadingScene { get { return CurrentlyLoadingSceneArgs != null; } }
 
+        public System.Collections.ObjectModel.ReadOnlyCollection<string> LoadedScenes
+        {
+            get
+            {
+                return _loadedScenes.AsReadOnly();
+            }
+
+        }
+
         /// <summary>
         ///     Adds the contents of the scene with the given name to the current scene and the waits one frame
         ///     so all the newly loaded objects are actually accessible.
@@ -265,7 +288,7 @@ namespace UnityTools.SceneManager
         ///     The scene name which contents will be added to the current scene
         /// </param>
         /// <param name="finishedCallback">
-        ///     This optional callback will be called when all the scenes have been loaded and one frame has passed, 
+        ///     This optional callback will be called when all the scenes have been loaded and one frame has passed,
         ///     which is the moment the contents of the scenes are actually accesible by code.
         /// </param>
         public void AddScene(string sceneName, Action<SceneLoadingArgs> finishedCallback = null)
@@ -293,7 +316,7 @@ namespace UnityTools.SceneManager
         ///     the order they appear in the list.
         /// </param>
         /// <param name="finishedCallback">
-        ///     This optional callback will be called when all the scenes have been loaded and one frame has passed, 
+        ///     This optional callback will be called when all the scenes have been loaded and one frame has passed,
         ///     which is the moment the contents of the scenes are actually accesible by code.
         /// </param>
         public void AddScenes(IList<string> sceneNames, Action<SceneLoadingArgs> finishedCallback = null)
@@ -336,8 +359,8 @@ namespace UnityTools.SceneManager
         ///     to this scene loading process
         /// </returns>
         /// <param name="finishedCallback">
-        ///     This callback is called each frame until the scene is being loaded, so you can query the 
-        ///     loading progress, using SceneLoadingArgs.Progress. The callback is called one last 
+        ///     This callback is called each frame until the scene is being loaded, so you can query the
+        ///     loading progress, using SceneLoadingArgs.Progress. The callback is called one last
         ///     time when the scene has actually finished loading, has been loaded, and the elements in
         ///     the scene are accesible by code.
         ///     The property SceneLoadingArgs.IsLoaded can be queried to check in which of the
@@ -353,9 +376,9 @@ namespace UnityTools.SceneManager
         ///     so all the newly loaded objects are actually accessible. The scene is NOT activated after it has
         ///     finished loading, you need to use the SceneLoadingArgs instance passed in the callback method
         ///     to manually activate the scene after it finished loading.
-        /// 
+        ///
         ///     The SceneDidLoad event is raised after one frame has passed after the activation of the scene
-        ///     This is equivalent to Application.LoadLevelAdditive() method and setting the 
+        ///     This is equivalent to Application.LoadLevelAdditive() method and setting the
         ///     AsyncOperation.allowSceneActivation property returned by that method call to false.
         /// </summary>
         /// <param name="sceneName">
@@ -366,10 +389,10 @@ namespace UnityTools.SceneManager
         ///     to this scene loading process
         /// </returns>
         /// <param name="finishedCallback">
-        ///     This callback is called each frame until the scene is being loaded, so you can query the 
-        ///     loading progress, using SceneLoadingArgs.Progress. 
+        ///     This callback is called each frame until the scene is being loaded, so you can query the
+        ///     loading progress, using SceneLoadingArgs.Progress.
         ///     When the scene has finished loading, the callback is called once again to notify about this
-        ///     and will wait until you manually call SceneLoadingArgs.ActivateScene() to actually load the 
+        ///     and will wait until you manually call SceneLoadingArgs.ActivateScene() to actually load the
         ///     scene into Unity's scene tree
         ///     The callback is called one last time after the scene is activated and when the elements in
         ///     the scene are accesible by code.
@@ -383,7 +406,7 @@ namespace UnityTools.SceneManager
 
         /// <summary>
         ///     Changes the current scene to the new one specified.
-        ///     All GameObjects in the current scene will be deleted (except those marked as 
+        ///     All GameObjects in the current scene will be deleted (except those marked as
         ///     DontDestroyOnLoad) and replaced by the contents of the new scene.
         /// </summary>
         /// <param name="sceneName">
@@ -430,10 +453,10 @@ namespace UnityTools.SceneManager
             PrintLog("Start {0}", loadArgs);
 
             OnSceneWillLoad(loadArgs);
-            
+
             StartCoroutine(LoadLevelAsyncCO(activateOnLoad));
         }
-            
+
         /// <summary>
         ///     Queries if the given scene is already loaded
         /// </summary>
@@ -443,9 +466,9 @@ namespace UnityTools.SceneManager
         /// <returns>
         ///     <c>true</c> if the given scene is loaded otherwise, <c>false</c>.
         /// </returns>
-        public bool IsThisSceneLoaded(string sceneName)
+        public bool IsSceneLoaded(string sceneName)
         {
-            return _loadedScenes.Contains(sceneName);
+            return LoadedScenes.Contains(sceneName);
         }
 
         #region MonobehaviourSingleton overrides
@@ -461,6 +484,7 @@ namespace UnityTools.SceneManager
         #endregion
 
         #region Helpers
+
 
         private void AddSceneAsyncInternal(string sceneName, bool activateOnLoad, Action<SceneLoadingArgs> finishedCallback)
         {
@@ -479,33 +503,30 @@ namespace UnityTools.SceneManager
         /// </summary>
         IEnumerator LoadLevelAsyncCO(bool activateOnLoad)
         {
-            var asyncOp = CurrentlyLoadingSceneArgs.IsSceneLoadedAdditive
+            var asyncOp = CurrentlyLoadingSceneArgs.IsSceneLoadingAdditive
                     ? Application.LoadLevelAdditiveAsync(CurrentlyLoadingSceneArgs.SceneName)
                     : Application.LoadLevelAsync(CurrentlyLoadingSceneArgs.SceneName);
 
             asyncOp.allowSceneActivation = activateOnLoad;
             CurrentlyLoadingSceneArgs.SaveAsyncOperationReference(asyncOp);
 
-            // This is a terrible hack to handle the way Unity loads
-            // scenes asynchronous while defering the activation of the scene.
-            // See comments below for a detailed explanation
-            // If AsyncOperation.allowSceneActivation is false Unity loads the scene but 
-            // does not activate it. That means the scene is loaded in memory but no scene 
+            // As of Unity 5.3 loads scenes asynchronous while defering the activation of the scene.
+            // If AsyncOperation.allowSceneActivation is false Unity loads the scene but
+            // does not activate it. That means the scene is loaded in memory but no scene
             // change will take place until you assign that property a value of true.
-            // The problem is that Unity considers an scene  fully loaded  
+            // The trick is that Unity considers an scene fully loaded
             // when the scene is loaded AND activated, so until you activate the scene
-            // asyncOp.isDone  is false, and asyncOp.percent is NOT 1.
-            // This means that if you set asyncOp.allowSceneActivation
-            // to false, asyncOp.isDone, will NEVER be true until you set  
-            // asyncOp.allowSceneActivation to true by code, so using a while
-            // loop yielding the async operation coroutine and checking for the
-            // scene to be loaded will never exit the loop.
+            // asyncOp.isDone is false, and asyncOp.percent is not 1, so if you set 
+            // asyncOp.allowSceneActivation  to false, asyncOp.isDone, will never be true until you set
+            // it by code.
+            // This prevent using a loop yielding the async operation coroutine and checking for the
+            // scene to be loaded, as it would never exit the loop.
             // The common hack to solve this is check that the progress is around
             // 90%, as that is considered the moment that the scene is loaded but
-            // just not activated. However this is just a magic number based on
-            // common experience.
+            // just not activated. I've seen this recomended by Unity devs, 
+            // however looks more like a magic number based on common experience.
             while(!IsSceneLoaded(asyncOp))
-            {   
+            {
                 CurrentlyLoadingSceneArgs.NotifySceneLoadingProgress(asyncOp.progress);
 
                 yield return null;
@@ -515,7 +536,7 @@ namespace UnityTools.SceneManager
             if(!asyncOp.allowSceneActivation) CurrentlyLoadingSceneArgs.NotifySceneLoaded();
 
             // Wait until we activate the scene
-            while (!asyncOp.allowSceneActivation) 
+            while (!asyncOp.allowSceneActivation)
             {
                 yield return null;
             }
@@ -549,14 +570,14 @@ namespace UnityTools.SceneManager
         void OnSceneDidLoad()
         {
             // If is not an additive operation, clean the list of loaded scenes
-            if (!CurrentlyLoadingSceneArgs.IsSceneLoadedAdditive)
+            if (!CurrentlyLoadingSceneArgs.IsSceneLoadingAdditive)
             {
                 _loadedScenes.Clear();
             }
 
             _loadedScenes.Add(CurrentlyLoadingSceneArgs.SceneName);
 
-            // If CurrentlyLoadingSceneArgs is not null means that we  we are in the process 
+            // If CurrentlyLoadingSceneArgs is not null means that we  we are in the process
             // of loading a scene. We need to set it to null before raising any event / callback
             // notifing that the scene was loaded to allow loading a new scene inside those events.
             var justLoadedSceneArgs = CurrentlyLoadingSceneArgs;
@@ -571,14 +592,17 @@ namespace UnityTools.SceneManager
 
         void OnSceneWillLoad(SceneLoadingArgs args)
         {
-            // Unity does not allows loading several async scenes at the same time,
-            // the second async loaded scene fails silently and IMO is better
-            // to scream when you find a problem :)
+            // Unity does not allow loading several async scenes at the same time:
+            // the second async loaded scene would fail silently so at least we 
+            // log the problem
+
             if (IsLoadingScene)
             {
-                throw new Exception(string.Format("Could not load {0}: Already loading {1}",
-                                                  args,
-                                                  CurrentlyLoadingSceneArgs));
+                Debug.Log (string.Format ("Could not load {0}: Already loading {1}",
+                    args,
+                    CurrentlyLoadingSceneArgs));
+                
+                return;
             }
 
             CurrentlyLoadingSceneArgs = args;
