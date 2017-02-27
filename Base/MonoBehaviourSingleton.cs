@@ -23,17 +23,17 @@ namespace UnityTools.Base
         /// <summary>
         ///     <c>true</c> if this Singleton Awake() method has already been called by Unity; otherwise, <c>false</c>.
         /// </summary>
-        public static bool IsAwakened  {get; private set;}
+        public static bool IsAwakened  { get; private set; }
 
         /// <summary>
         ///     <c>true</c> if this Singleton Start() method has already been called by Unity; otherwise, <c>false</c>.
         /// </summary>
-        public static bool IsStarted   {get; private set;}
+        public static bool IsStarted   { get; private set; }
 
         /// <summary>
         ///     <c>true</c> if this Singleton OnDestroy() method has already been called by Unity; otherwise, <c>false</c>.
         /// </summary>
-        public static bool IsDestroyed {get; private set;}
+        public static bool IsDestroyed { get; private set; }
 
         /// <summary>
         ///     Global access point to the unique instance of this class.
@@ -132,7 +132,8 @@ namespace UnityTools.Base
 
         #endregion
 
-        #region Unity3d Messages - DO NOT OVERRRIDE / IMPLEMENT THESE METHODS in child classes!
+        #region Unity3d Messages - DO NOT OVERRRIDE NOR IMPLEMENT THESE METHODS in child classes!
+
         void Awake()
         {
             T thisInstance = this.GetComponent<T>();
@@ -141,11 +142,13 @@ namespace UnityTools.Base
             if (_instance == null)
             {
                 _instance = thisInstance;
+                DontDestroyOnLoad(_instance.gameObject);
+
             }
             else if(thisInstance != _instance)
             {
                 PrintWarn(string.Format(
-                    "Found a duplicated instance of a Singleton with type {0} in the GameObject {1}",
+                    "Found a duplicated instance of a Singleton with type {0} in the GameObject {1} that will be ignored",
                     this.GetType(), this.gameObject.name));
 
                 NotifyInstanceRepeated();
@@ -160,7 +163,6 @@ namespace UnityTools.Base
                     "Awake() Singleton with type {0} in the GameObject {1}",
                     this.GetType(), this.gameObject.name));
 
-                DontDestroyOnLoad(_instance.gameObject);
                 SingletonAwakened();
                 IsAwakened = true;
             }
@@ -189,11 +191,9 @@ namespace UnityTools.Base
             // This is needed because there is a chance that the GO holding this singleton
             // is destroyed before some other object that also access this singleton when is being destroyed.
             // As the singleton instance is null, that would create both a new instance of this
-            // º and a brand new GO to which the singleton instance is attached to..
-            //
+            // MonoBehaviourSingleton and a brand new GO to which the singleton instance is attached to.
             // However as this is happening during the Unity app shutdown for some reason the newly created GO
             // is kept in the scene instead of being discarded after the game exists play mode.
-            // (Unity bug?)
             IsDestroyed = true;
 
             PrintLog(string.Format(
@@ -205,6 +205,7 @@ namespace UnityTools.Base
         #endregion
 
         #region Debug Methods (available in child classes)
+
         [Header("Debug")]
         /// <summary>
         ///  Set this to true either by code or in the inspector to print trace log messages
@@ -223,20 +224,20 @@ namespace UnityTools.Base
 
         protected void PrintError(string str, params object[] args)
         {
-            Print(UnityEngine.Debug.LogError, PrintTrace, str, args);
+            Print(UnityEngine.Debug.LogError, true, str, args);
         }
 
-        private void Print(Action<string> call, bool doPrint, string str, params object[] args)
+        private void Print(Action<string> printFunc, bool doPrint, string str, params object[] args)
         {
             if(doPrint)
             {
-                call(string.Format(
+                printFunc(string.Format(
                     "<b>[{0}][{1}] {2} </b>",
                     Time.frameCount,
                     this.GetType().Name.ToUpper(),
                     string.Format(str, args)
                     )
-                     );
+                );
             }
         }
 
