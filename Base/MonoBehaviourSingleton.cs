@@ -138,13 +138,14 @@ namespace UnityTools.Base
         {
             T thisInstance = this.GetComponent<T>();
 
-            // Initialize the singleton if the script is already in the scene in a GameObject
+            // Initialize the singleton
             if (_instance == null)
             {
                 _instance = thisInstance;
                 DontDestroyOnLoad(_instance.gameObject);
 
             }
+            // She singleton if was already living in a GameObject
             else if(thisInstance != _instance)
             {
                 PrintWarn(string.Format(
@@ -188,12 +189,13 @@ namespace UnityTools.Base
             if (this != _instance) return;
 
             // Flag set when Unity sends the message OnDestroy to this Component.
-            // This is needed because there is a chance that the GO holding this singleton
-            // is destroyed before some other object that also access this singleton when is being destroyed.
-            // As the singleton instance is null, that would create both a new instance of this
-            // MonoBehaviourSingleton and a brand new GO to which the singleton instance is attached to.
-            // However as this is happening during the Unity app shutdown for some reason the newly created GO
-            // is kept in the scene instead of being discarded after the game exists play mode.
+            // This is needed because there is a chance that the GameObject A holding this singleton
+            // is destroyed before some other GameObject B that also access this singleton when B is being destroyed.
+            // If that happens as the singleton instance whould be null a new singleton would be created 
+            // including a brand new GO to which the singleton instance is attached to.
+            // As this is happening during the Unity app shutdown for some reason the newly created GO
+            // is kept in the scene when you exist play mode, so this prevent filling your scene with remmants 
+            // of singleton GameObjects
             IsDestroyed = true;
 
             PrintLog(string.Format(
